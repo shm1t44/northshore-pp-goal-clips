@@ -10,6 +10,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: update-clips
+  cancel-in-progress: false
+
 jobs:
   update-clips:
     runs-on: ubuntu-latest
@@ -17,6 +21,16 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Bring back saved videos from the website branch
+        run: |
+          rm -rf videos
+          if git ls-remote --exit-code --heads origin gh-pages > /dev/null; then
+            git fetch --depth 1 origin gh-pages
+            git checkout FETCH_HEAD -- videos 2>/dev/null || true
+            git reset -q
+          fi
+          mkdir -p videos
 
       - name: Set up R
         uses: r-lib/actions/setup-r@v2
@@ -43,8 +57,23 @@ jobs:
         run: |
           Rscript video_processing.R
 
-      - name: Save CSV and MP4 files to GitHub
+      - name: Build website folder
+        run: |
+          mkdir -p site
+          cp index.html northshore-logo.svg pp_goal_clips.csv site/
+          cp -r videos site/
+          touch site/.nojekyll
+          du -sh site
+
+      - name: Publish website (replaces old copy, so it never grows)
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
+          force_orphan: true
+
+      - name: Save goal list
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "Update NHL power-play clips and videos"
-          file_pattern: "pp_goal_clips.csv videos/**"
+          commit_message: "Update NHL power-play clip list"
+          file_pattern: "pp_goal_clips.csv"
